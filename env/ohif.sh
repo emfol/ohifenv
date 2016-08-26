@@ -44,7 +44,7 @@ instance='DB'
 if ! container_exists "$containerdb"
 then
     echo "Creating $instance Container..."
-    docker run -dit --name "$containerdb" -p 4242:4242 -p 8042:8042 jodogne/orthanc
+    docker run -d -i -t --name "$containerdb" -p 4242:4242 -p 8042:8042 jodogne/orthanc-plugins
     print_result "$?" "$instance"
 else
     if ! container_running "$containerdb"

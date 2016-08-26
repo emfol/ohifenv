@@ -144,6 +144,8 @@ then
         then
             print_error "Error cloning OHIF Viewers repo..."
             let "status|=8"
+        else
+            echo 'Done!'
         fi
     fi
     cd "$origdir"
