@@ -1,15 +1,24 @@
 #!/bin/bash
 
-function abspath {                                               
-    local dir="$(dirname "$1")"
+function abspath {
+    local olddir="$(pwd)" dir="$1"
     if [ -d "$dir" ]
     then
         cd "$dir"
-        printf "%s/%s\n" "$(pwd)" "$(basename "$1")"
-        cd "$OLDPWD"
+        echo "$(pwd)"
+        cd "$olddir"
     else
-        return 1
+        dir="$(dirname "$dir")"
+        if [ -d "$dir" ]
+        then
+            cd "$dir"
+            echo "$(pwd)/$(basename "$1")"
+            cd "$olddir"
+        else
+            return 1
+        fi
     fi
+    return 0
 }
 
 function print_error {
@@ -33,5 +42,5 @@ function command_found {
 }
 
 function command_not_found {
-    ! command_found
+    ! command_found "$1"
 }

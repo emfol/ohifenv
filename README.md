@@ -1,1 +1,3 @@
 # ohifenv
+
+Scripts for setting up the OHIF development environment with Docker...

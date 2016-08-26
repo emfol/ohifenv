@@ -2,13 +2,17 @@
 
 set -u
 
-declare -i status=0
-declare resp basedir=$(dirname "$0")
+declare -i count status=0
+declare resp origdir="$(pwd)" basedir=$(dirname "$0")
 source "$basedir/lib/helpers.sh"
+basedir="$(abspath "$basedir")"
 declare tjn_dir tjn_url="https://github.com/tj/n"
 declare meteor_sh meteor_url="https://install.meteor.com/"
 declare git_user_name="" git_user_email=""
-declare ohif_dir="/home/ohif" ohif_url="https://github.com/OHIF/Viewers"
+declare ohif_dir="/home/ohif/viewers" ohif_url="https://github.com/OHIF/Viewers"
+
+# some info...
+printf "Provisioning container with %s/%s...\n" "$basedir" "$(basename "$0")"
 
 # yum packages
 yum install -y tree vim curl git make
@@ -29,22 +33,23 @@ then
         if [ $? -eq 0 ]
         then
             PREFIX="/usr/local" make install
-            if command_not_found "n" then
+            if command_found "n"
             then
-                let "status|=2"
-                print_error "Cannot install tj/n..."
-            else
                 n lts
                 if [ $? -ne 0 ]
                 then
                     let "status|=2"
                     print_error "Cannot install node through tj/n..."
                 fi
+            else
+                let "status|=2"
+                print_error "Cannot install tj/n..."
             fi
         else
             let "status|=2"
             print_error "The tj/n git repo could not be cloned..."
         fi
+        cd "$origdir"
         quiet_rm "$tjn_dir"
     else
         let "status|=2"
@@ -95,6 +100,21 @@ then
         git config --global user.email "$git_user_email"
     fi
     # clone repos...
+    mkdir -p "$ohif_dir" && cd "$ohif_dir"
+    count="$(ls -A . | wc -l)"
+    if [ $count -lt 2 ]
+    then
+        echo "Cloning OHIF Viewers directory..."
+        # remove pottentialy broken Git clone
+        quiet_rm ".git"
+        git clone "$ohif_url" .
+        if [ $? -ne 0 ]
+        then
+            print_error "Error cloning OHIF Viewers repo..."
+            let "status|=8"
+        fi
+    fi
+    cd "$origdir"
 fi
 
 exit $status
