@@ -2,10 +2,14 @@
 
 set -u
 
-declare -i count status=0
-declare resp origdir="$(pwd)" basedir=$(dirname "$0")
+# include dependencies...
+declare basedir=$(dirname "$0")
 source "$basedir/lib/helpers.sh"
 basedir="$(abspath "$basedir")"
+
+# declare main variables...
+declare -i count status=0
+declare resp origdir="$(pwd)"
 declare tjn_dir tjn_url="https://github.com/tj/n"
 declare meteor_sh meteor_url="https://install.meteor.com/"
 declare git_user_name git_user_email
