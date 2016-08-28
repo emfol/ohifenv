@@ -7,9 +7,10 @@ declare basedir=$(dirname "$0")
 source "$basedir/lib/helpers.sh"
 
 # declare main variables...
-declare sharedir="$(abspath "$basedir/..")" sharename='/mnt/share'
-declare instance containerapp='ohif_app' containerdb='ohif_db'
+declare share_h="$(abspath "$basedir/..")" share_g='/mnt/share'
+declare instance dkr_args dkcnt_app='ohif_app' dkcnt_db='ohif_db'
 
+# utility functions...
 function check_result {
     declare -i res="$1"
     declare inst="$2"
@@ -23,14 +24,23 @@ function check_result {
     fi
 }
 
-function container_exists {
+function docker_container_exists {
     declare containerid="$(docker ps -q -a -f "name=$1")"
     test -n "$containerid"
 }
 
-function container_running {
+function docker_container_running {
     declare containerid="$(docker ps -q -f "name=$1")"
     test -n "$containerid"
+}
+
+function docker_format_args {
+    if docker run --help | grep -q -E -e '--(name|link)='
+    then
+        echo "$1"
+    else
+        echo "$1" | tr '=' ' '
+    fi
 }
 
 # check if docker is installed...
@@ -41,16 +51,17 @@ then
 fi
 
 instance='DB'
-if ! container_exists "$containerdb"
+if ! docker_container_exists "$dkcnt_db"
 then
     echo "Creating $instance Container..."
-    docker run -d -i -t --name "$containerdb" -p 4242:4242 -p 8042:8042 jodogne/orthanc-plugins
+    dkr_args=$(docker_format_args "--name='$dkcnt_db'")
+    docker run -d -i -t -p 4242:4242 -p 8042:8042 $dkr_args jodogne/orthanc-plugins:latest
     check_result "$?" "$instance"
 else
-    if ! container_running "$containerdb"
+    if ! docker_container_running "$dkcnt_db"
     then
         echo "Starting $instance Container..."
-        docker start "$containerdb"
+        docker start "$dkcnt_db"
         check_result "$?" "$instance"
     else
         echo "$instance Container running!"
@@ -58,18 +69,19 @@ else
 fi
 
 instance='APP'
-if container_running "$containerdb"
+if docker_container_running "$dkcnt_db"
 then
-    if ! container_exists "$containerapp"
+    if ! docker_container_exists "$dkcnt_app"
     then
         echo "Creating $instance Container..."
-        docker run -d -i -t --name "$containerapp" --link "$containerdb" -v "$sharedir":"$sharename" -p 3000:3000 centos:7 /bin/bash
+        dkr_args=$(docker_format_args "--name='$dkcnt_app' --link='$dkcnt_db:$dkcnt_db'")
+        docker run -d -i -t -v "$share_h":"$share_g" -p 3000:3000 $dkr_args centos:7 /bin/bash
         check_result "$?" "$instance"
     else
-        if ! container_running "$containerapp"
+        if ! docker_container_running "$dkcnt_app"
         then
             echo 'Starting APP Container...'
-            docker start "$containerapp"
+            docker start "$dkcnt_app"
             check_result "$?" "$instance"
         else
             echo "$instance Container running!"
