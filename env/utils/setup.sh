@@ -9,7 +9,7 @@ basedir="$(abspath "$basedir")"
 
 # main vars
 declare -i count status=0
-declare item resp origdir="$(pwd)"
+declare item resp='' origdir="$(pwd)"
 # tj/n/node.js vars
 declare tjn_dir tjn_url="https://github.com/tj/n"
 # meteor vars
