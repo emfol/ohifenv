@@ -7,13 +7,13 @@ declare basedir=$(dirname "$0")
 source "$basedir/lib/helpers.sh"
 
 # declare main variables...
-declare share_h="$(abspath "$basedir/..")" share_g='/mnt/share'
+declare share_h=$(abspath "$basedir/..") share_g='/mnt/share'
 declare instance dkr_args dkcnt_app='ohif_app' dkcnt_db='ohif_db'
 
 # utility functions...
 function check_result {
-    declare -i res="$1"
-    declare inst="$2"
+    local -i res="$1"
+    local inst="$2"
     if [ $res -ne 0 ]
     then
         echo 'Oops! Something went wrong...'
@@ -25,12 +25,12 @@ function check_result {
 }
 
 function docker_container_exists {
-    declare containerid="$(docker ps -q -a -f "name=$1")"
+    declare containerid=$(docker ps -q -a -f "name=$1")
     test -n "$containerid"
 }
 
 function docker_container_running {
-    declare containerid="$(docker ps -q -f "name=$1")"
+    declare containerid=$(docker ps -q -f "name=$1")
     test -n "$containerid"
 }
 

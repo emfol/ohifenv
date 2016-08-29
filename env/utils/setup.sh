@@ -5,11 +5,11 @@ set -u
 # include dependencies...
 declare basedir=$(dirname "$0")
 source "$basedir/../lib/helpers.sh"
-basedir="$(abspath "$basedir")"
+basedir=$(abspath "$basedir")
 
 # main vars
 declare -i count status=0
-declare item resp='' origdir="$(pwd)"
+declare item resp='' origdir=$(pwd)
 # tj/n/node.js vars
 declare tjn_dir tjn_url="https://github.com/tj/n"
 # meteor vars
@@ -59,7 +59,7 @@ fi
 if command_not_found 'node'
 then
     echo 'Installing Node.js and Node.js Version Manager (tj/n)'
-    tjn_dir="$(get_tmpd)"
+    tjn_dir=$(get_tmpd)
     if [ -d "$tjn_dir" ]
     then
         echo ' ... Cloning tj/n'
@@ -106,7 +106,7 @@ fi
 if command_not_found 'meteor'
 then
     echo 'Installing Meteor'
-    meteor_sh="$(get_tmpf)"
+    meteor_sh=$(get_tmpf)
     if [ -f "$meteor_sh" ]
     then
         echo ' ... Downloading installation script'
@@ -157,7 +157,7 @@ then
     fi
     # clone repos...
     mkdir -p "$ohif_dir" && cd "$ohif_dir"
-    count="$(ls -A . | wc -l)"
+    count=$(ls -A . | wc -l)
     if [ $count -lt 2 ]
     then
         echo 'Cloning OHIF Viewers repository'

@@ -1,14 +1,14 @@
 #!/bin/bash
 
 function abspath {
-    local olddir="$(pwd)" dir="$1"
+    local olddir=$(pwd) dir="$1"
     if [ -d "$dir" ]
     then
         cd "$dir"
         echo "$(pwd)"
         cd "$olddir"
     else
-        dir="$(dirname "$dir")"
+        dir=$(dirname "$dir")
         if [ -d "$dir" ]
         then
             cd "$dir"
