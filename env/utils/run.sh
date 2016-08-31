@@ -3,7 +3,7 @@
 set -u
 
 declare -i result=0
-declare base_dir='/home/ohif/viewers'
+declare base_dir='/home/ohif/src'
 declare db_host='ohif_db'
 declare proxy_tmpd="$base_dir/.proc/proxy" app_tmpd="$base_dir/.proc/app"
 declare proxy_pidf="$proxy_tmpd/pid" app_pidf="$app_tmpd/pid"

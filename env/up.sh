@@ -7,7 +7,7 @@ declare basedir=$(dirname "$0")
 source "$basedir/lib/helpers.sh"
 
 # declare main variables...
-declare share_h=$(abspath "$basedir/..") share_g='/mnt/share'
+declare share_h=$(abspath "$basedir/..") share_g='/home/ohif'
 declare instance dkr_args dkcnt_app='ohif_app' dkcnt_db='ohif_db'
 
 # utility functions...
