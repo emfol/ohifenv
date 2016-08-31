@@ -18,7 +18,8 @@ declare meteor_sh meteor_url="https://install.meteor.com/"
 declare git_user_name git_user_email
 declare ohif_dir="/home/ohif/src" ohif_url="https://github.com/OHIF/Viewers"
 # yum var
-declare -a yum_pkgs_missing yum_pkgs_list=(tree vim curl git make)
+declare -a yum_pkgs_missing yum_pkgs_list=( tree vim curl git make gcc g++:gcc-c++ )
+declare yum_pkg_id yum_pkg_cmd
 # logs
 declare logfile="/tmp/$(basename "$0").log"
 
@@ -33,17 +34,19 @@ date > "$logfile"
 count=0
 for item in "${yum_pkgs_list[@]}"
 do
-   if command_not_found "$item"
+   yum_pkg_id=${item#*:}
+   yum_pkg_cmd=${item%:*}
+   if command_not_found "$yum_pkg_cmd"
    then
-       let count+=1
-       yum_pkgs_missing[$count]="$item"
+       let count++
+       yum_pkgs_missing[$count]=$yum_pkg_id
    fi
 done
 if [ ${#yum_pkgs_missing[@]} -gt 0 ]
 then
     echo "The following YUM packages will be installed: ${yum_pkgs_missing[*]}"
     echo ' ... Executing YUM'
-    yum install -y "${yum_pkgs_missing[@]}" >> "$logfile" 2>&1
+    yum install -y "${yum_pkgs_missing[@]}" < /dev/null >> "$logfile" 2>&1
     if [ $? -ne 0 ]
     then
         print_error 'YUM failed and provisioning cannot proceed... Please try again later.'

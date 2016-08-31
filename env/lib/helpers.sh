@@ -1,19 +1,23 @@
 #!/bin/bash
 
 function abspath {
-    local olddir=$(pwd) dir="$1"
-    if [ -d "$dir" ]
+    local file path=$1
+    if [ "${path:0:1}" = '/' ]
     then
-        cd "$dir"
-        echo "$(pwd)"
-        cd "$olddir"
+        echo "$path"
+    elif [ -d "$path" ]
+    then
+        cd "$path"
+        echo "$PWD"
+        cd "$OLDPWD"
     else
-        dir=$(dirname "$dir")
-        if [ -d "$dir" ]
+        file=$(basename "$path")
+        path=$(dirname "$path")
+        if [ -d "$path" ]
         then
-            cd "$dir"
-            echo "$(pwd)/$(basename "$1")"
-            cd "$olddir"
+            cd "$path"
+            echo "$PWD/$file"
+            cd "$OLDPWD"
         else
             return 1
         fi
