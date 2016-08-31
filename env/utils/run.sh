@@ -2,45 +2,48 @@
 
 set -u
 
-declare -i result=0
-declare base_dir='/home/ohif/src'
-declare db_host='ohif_db'
-declare proxy_tmpd="$base_dir/.proc/proxy" app_tmpd="$base_dir/.proc/app"
-declare proxy_pidf="$proxy_tmpd/pid" app_pidf="$app_tmpd/pid"
-declare proxy_logf="$proxy_tmpd/log" app_logf="$app_tmpd/log"
-declare proxy_jsf="$proxy_tmpd/proxy.js" proxy_jss="$base_dir/etc/nodeCORSProxy.js"
-declare app_tool app_project app_dir app_conf app_bin app_pid app_log
+# ignore SIGHUP
+trap '' SIGHUP
 
-# utils
+# vars -- base
+declare db_host='ohif_db'
+declare base_dir='/home/ohif'
+declare src_dir="$base_dir/src"
+declare tmp_dir="$base_dir/.proc"
+declare orig_dir=$(pwd)
+# vars -- proc
+declare daemon_logf="$tmp_dir/daemon_log"
+declare daemon_pidf="$tmp_dir/daemon_pid"
+declare proxy_logf="$tmp_dir/proxy_log"
+declare proxy_pidf="$tmp_dir/proxy_pid"
+declare app_logf="$tmp_dir/app_log"
+declare app_pidf="$tmp_dir/app_pid"
+declare -i daemon_pid proxy_pid app_pid
+# vars -- misc
+declare proxy_js_target="$tmp_dir/proxy.js" proxy_js_src="$src_dir/etc/nodeCORSProxy.js"
+declare app_tool app_project app_dir app_conf app_bin
+
+# functions
 
 function quiet_rm {
-    rm -rf "$@" > /dev/null 2>&1
+    rm -rf "$@" &> /dev/null
 }
 
 function is_proc_running {
-    local pidf="$1"
-    local -i pidn=0
-    if [ -f "$pidf" -a -s "$pidf" ]
-    then
-        pidn=$(cat "$pidf")
-        test $pidn -gt 0 && kill -0 $pidn > /dev/null 2>&1
-    else
-        return 1
-    fi
+    local -i pid=$1
+    (( $pid > 0 )) && kill -0 $pid &> /dev/null
 }
 
 function stop_proc {
-    local pidf="$1"
-    local -i pidn=0
-    if [ -f "$pidf" -a -s "$pidf" ]
+    local -i pid=$1
+    if (( $pid > 0 ))
     then
-        pidn=$(cat "$pidf")
-        test $pidn -gt 0 && kill -SIGINT $pidn > /dev/null 2>&1
-        if [ $? -eq 0 ]
+        if kill -SIGINT $pid &> /dev/null
         then
-            echo "Process killed... $pidn"
+            echo "Process #$pid killed!"
+        else
+            echo "Attempt to kill process #$pid failed..."
         fi
-        quiet_rm "$pidf"
     fi
 }
 
@@ -55,20 +58,20 @@ function proxy_run {
     # start fresh
     quiet_rm "$proxy_pidf"
     # adapt proxy script
-    if [ ! -f "$proxy_jsf" -o ! -s "$proxy_jsf" ]
+    if [ ! -f "$proxy_js_target" -o ! -s "$proxy_js_target" ]
     then
-        sed -e 's/localhost:8042/ohif_db:8042/g' < "$proxy_jss" > "$proxy_jsf"
-        if [ ! -f "$proxy_jsf" -o ! -s "$proxy_jsf" ]
+        sed -e 's/localhost:8042/ohif_db:8042/g' < "$proxy_js_src" > "$proxy_js_target"
+        if [ ! -f "$proxy_js_target" -o ! -s "$proxy_js_target" ]
         then
-            printf 'Error applying changes to proxy JS file...\n - %s\n - %s\n' "$proxy_jss" "$proxy_jsf"
+            printf 'Error applying changes to proxy JS file...\n - %s\n - %s\n' "$proxy_js_src" "$proxy_js_target"
             exit 1
         fi
     fi
     # execute script
-    cd "$(dirname "$proxy_jsf")"
+    cd "$(dirname "$proxy_js_target")"
     npm install http-proxy < /dev/null >> "$proxy_logf" 2>&1
     cd "$app_dir"
-    node "$proxy_jsf" < /dev/null >> "$proxy_logf" 2>&1 &
+    node "$proxy_js_target" < /dev/null >> "$proxy_logf" 2>&1 &
     pidn="$!"
     echo "$pidn" > "$proxy_pidf"
     # wait a few second to see if the service is really running
@@ -92,7 +95,7 @@ function clean_up {
     echo 'Done!'
 }
 
-# check parameters
+# check parameter count
 
 if [ $# -lt 2 ]
 then
@@ -117,7 +120,7 @@ else
     exit 1
 fi
 
-app_dir="$base_dir/$app_tool"
+app_dir="$src_dir/$app_tool"
 
 # check if app directory exists
 
@@ -146,9 +149,29 @@ then
     exit 1
 fi
 
-# directory setup
+# make sure temporary directory exists...
+if ! mkdir -p "$tmp_dir" &> /dev/null
+then
+    echo "Cannot create process directory ($tmp_dir)"
+    exit 1
+fi
 
-mkdir -p "$proxy_tmpd" "$app_tmpd"
+# fork!
+if [ -f "$daemon_pidf" ]
+then
+    daemon_pid=$(cat "$daemon_pidf")
+    if [ $$ -ne $daemon_pid ]
+    then
+        echo "This job is already running ($daemon_pid)"
+        exit 1
+    fi
+else
+    "$0" < /dev/null >> "$daemon_logf" 2>&1 &
+    echo "$!" > "$daemon_pidf"
+    echo 'Starting servers in background...'
+    exit 0
+fi
+
 
 # set signal handlers
 
