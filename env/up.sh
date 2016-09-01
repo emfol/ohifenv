@@ -36,8 +36,8 @@ function docker_container_running {
 }
 
 function docker_format_args {
-    local -a a
-    local -i i
+    local -a a=()
+    local -i i=0
     local k v
     # check if transformation is necessary...
     docker run --help | grep -q -E -e '--(name|link)='
