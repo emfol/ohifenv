@@ -36,18 +36,20 @@ function docker_container_running {
 }
 
 function docker_format_args {
-    local -a list
-    local -i i j
-    local prev curr
-    if docker run --help | grep -q -E -e '--(name|link)='
-    then
-        (( i = 0, j = 0 ))
-        for curr in "${docker_args[@]}"
-        do
-            (( ++i % 2 == 0 )) && list[j++]="$prev=$curr" || prev=$curr
-        done
-        [ ${#list[@]} -gt 0 ] && docker_args=( "${list[@]}" )
-    fi
+    local -a a
+    local -i i
+    local k v
+    # check if transformation is necessary...
+    docker run --help | grep -q -E -e '--(name|link)='
+    [ $? -ne 0 -o ${#docker_args[@]} -lt 1 ] && return
+    for v in "${docker_args[@]}"
+    do
+        if (( ++i % 2 == 0 ))
+        then [ ${#a[@]} -gt 0 ] && a=( "${a[@]}" "$k=$v" ) || a=( "$k=$v" )
+        else k=$v
+        fi
+    done
+    [ ${#a[@]} -gt 0 ] && docker_args=( "${a[@]}" )
 }
 
 # check if docker is installed...
