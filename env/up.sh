@@ -54,7 +54,7 @@ instance='DB'
 if ! docker_container_exists "$dkcnt_db"
 then
     echo "Creating $instance Container..."
-    dkr_args=$(docker_format_args "--name='$dkcnt_db'")
+    dkr_args=$(docker_format_args "--name=$dkcnt_db")
     docker run -d -i -t -p 4242:4242 -p 8042:8042 $dkr_args jodogne/orthanc-plugins:latest
     check_result "$?" "$instance"
 else
@@ -74,7 +74,7 @@ then
     if ! docker_container_exists "$dkcnt_app"
     then
         echo "Creating $instance Container..."
-        dkr_args=$(docker_format_args "--name='$dkcnt_app' --link='$dkcnt_db:$dkcnt_db'")
+        dkr_args=$(docker_format_args "--name=$dkcnt_app --link=$dkcnt_db:$dkcnt_db")
         docker run -d -i -t -v "$share_h":"$share_g" -p 3000:3000 $dkr_args centos:7 /bin/bash
         check_result "$?" "$instance"
     else
