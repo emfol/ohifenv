@@ -40,18 +40,24 @@ function is_daemon_mode {
 }
 
 function sanity_check {
+
     local data ppid pid
+
     # check if supplied job is executable
     is_executable "$job" || return 1
-    # check content of lock file
+
+    # check the contents of lock file
     data=$(cut -s -d : -f 1,2 < "$lockfile")
     ppid=${data%:*}
     pid=${data#*:}
     [ "$ppid" != "$parentpid" -o "$pid" != '0' ] && return 2
+
     # save daemon process id
     echo "$parentpid:$$" > "$lockfile"
+
     # make sure the parent process is alive
-    kill -n 0 "$parentpid" > /dev/null 2>&1 || return 3
+    kill -n 0 "$parentpid" || return 3
+
 }
 
 function release_parent {
@@ -95,6 +101,7 @@ declare -i ival
 
 if is_daemon_mode; then
 
+    logger "[ daemon init ] $(date -u)"
 
     # perform sanity check
     sanity_check
@@ -119,8 +126,8 @@ if is_daemon_mode; then
     childpid=$!
     logger "job dispatched: #$childpid \"$job\" ($*)"
 
-    # setting iterruption trap
-    trap 'interrupt_child' SIGINT SIGTERM
+    # set iterruption trap
+    trap 'interrupt_child' SIGTERM
 
     logger 'waiting for child process completion'
     wait $childpid
