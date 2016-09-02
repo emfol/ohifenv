@@ -61,7 +61,7 @@ function sanity_check {
 }
 
 function release_parent {
-    echo 'Done!'
+    logger 'Done!'
     exit 0
 }
 
@@ -191,14 +191,14 @@ else
         # fi
 
         # export necessary variables and initialize lock file
-        export xjobpath=$job xlockfile=$lockfile xparentpid=$$
+        export xjobpath="$job" xlockfile="$lockfile" xparentpid="$$"
         echo "$xparentpid:0" > "$xlockfile"
 
         # set SIGUSR1 handler
         trap 'release_parent' SIGUSR1
 
         # dispatch child process (daemon) and wait for SIGUSR1 signal
-        "$selfpath" "$@" < /dev/null > "$logfile" 2>&1 &
+        "$selfpath" "$@" < /dev/null >> "$logfile" 2>&1 &
         childpid=$!
         wait $childpid
 
