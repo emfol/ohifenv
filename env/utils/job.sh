@@ -35,8 +35,8 @@ function is_executable {
 }
 
 function is_daemon_mode {
-    [ -n "$parentpid" -a -n "$lockfile" -a -n "$job" \
-        -a -s "$lockfile" -a "$parentpid" = "$PPID" ]
+    [ -n "$parentpid" -a -n "$lockfile" -a -n "$job" -a \
+        -s "$lockfile" -a "$parentpid" = "$PPID" ]
 }
 
 function sanity_check {
@@ -47,11 +47,11 @@ function sanity_check {
     data=$(cut -s -d : -f 1,2 < "$lockfile")
     ppid=${data%:*}
     pid=${data#*:}
-    [ "$ppid" != "$parentpid" -o "$pid" != '0' ] && return 1
+    [ "$ppid" != "$parentpid" -o "$pid" != '0' ] && return 2
     # save daemon process id
     echo "$parentpid:$$" > "$lockfile"
     # make sure the parent process is alive
-    kill -n 0 "$parentpid" > /dev/null 2>&1
+    kill -n 0 "$parentpid" > /dev/null 2>&1 || return 3
 }
 
 function release_parent {
@@ -59,17 +59,24 @@ function release_parent {
     exit 0
 }
 
+function clean_up {
+    rm -rf "$lockfile"
+}
+
+function logger {
+    [ $# -gt 0 ] && printf ' -- %s\n' "$*"
+}
+
 function interrupt_child {
-    echo 'Sending termination signal (SIGTERM) to child process...'
-    kill -SIGTERM $pid_child
-    echo "R: $?"
-    echo 'Waiting for child process status code...'
-    wait $pid_child
-    echo "R: $?"
-    echo 'Removing lock...'
-    rm -rf "$file_pid"
-    echo "R: $?"
-    echo 'Bye!'
+    logger 'iterrupt signal intercepted!'
+    logger 'sending termination signal (SIGTERM) to child process'
+    kill -s SIGTERM $childpid
+    logger "R: $?"
+    logger 'waiting for child process status code'
+    wait $childpid
+    logger "R: $?"
+    clean_up
+    logger 'exit by interrupt... bye!'
     exit 0
 }
 
@@ -88,32 +95,45 @@ declare -i ival
 
 if is_daemon_mode; then
 
+
     # perform sanity check
     sanity_check
     ival=$?
     if [ $ival -ne 0 ]; then
-        echo "Bad result for sanity check ($ival)..."
+        logger "aborting... bad result for sanity check ($ival)"
         exit 1
     fi
+
+    logger 'sanity check passed'
 
     # ignore SIGHUP
     trap '' SIGHUP
 
     # release parent process
-    kill -s SIGUSR1 "$parentpid" > /dev/null 2>&1
+    logger 'sending release signal (SIGUSR1) to parent process'
+    kill -s SIGUSR1 "$parentpid"
+    logger "R: $?"
 
-    # dispatch job
+    # dispatching job asynchronously
     "$job" "$@" &
     childpid=$!
+    logger "job dispatched: #$childpid \"$job\" ($*)"
 
-    # trap 'interrupt_child' SIGINT SIGTERM
+    # setting iterruption trap
+    trap 'interrupt_child' SIGINT SIGTERM
+
+    logger 'waiting for child process completion'
     wait $childpid
+    logger "child proccess exited with code: $?"
+
+    clean_up
+    logger 'clean exit... bye!'
 
 else
 
     # make sure jobs directory exists
     if ! mkdir -p "$rundir" > /dev/null 2>&1; then
-        echo 'Jobs directory could not be created...'
+        logger 'jobs directory could not be created'
         exit 1
     fi
 
@@ -133,7 +153,7 @@ else
     # check if specified job exists
     job=$(command_path "$job")
     if [ $? -ne 0 ]; then
-        echo 'The specified job could not be found...'
+        logger 'The specified job could not be found...'
         exit 1
     fi
 
@@ -148,38 +168,47 @@ else
 
     # evaluate command
     if [ "$cmd" = 'start' ]; then
+
         # START
+
         if [ -f "$lockfile" ]; then
-            echo 'This job seems to be already running...'
+            logger 'The specified job seems to be already running...'
             exit 1
         fi
         # create lock
         touch "$lockfile"
+
         # # check for any hooks
         # if is_executable "hook_$job"; then
         #     "hook_$job" "${@:3}"
         # fi
-        # prepare to dispatch job
-        trap 'release_parent' SIGUSR1
+
+        # export necessary variables and initialize lock file
         export xjobpath=$job xlockfile=$lockfile xparentpid=$$
         echo "$xparentpid:0" > "$xlockfile"
-        # dispatch child process (daemon)
+
+        # set SIGUSR1 handler
+        trap 'release_parent' SIGUSR1
+
+        # dispatch child process (daemon) and wait for SIGUSR1 signal
         "$selfpath" "$@" < /dev/null > "$logfile" 2>&1 &
-        # wait for SIGUSR1 from child
         childpid=$!
         wait $childpid
+
         # ... execution should not reach this point
-        rm -rf "$lockfile" > /dev/null 2>&1
-        echo 'Oops! Premature job death...'
+        clean_up
+        logger 'Oops! The specified job died prematurely...'
         exit 1
+
         # ~ ~ ~
+
     elif [ "$cmd" = 'stop' ]; then
         # STOP
-        echo 'Stop not implemented...'
+        logger 'Stop not implemented...'
         # ~ ~ ~
     elif [ "$cmd" = 'restart' ]; then
         # RESTART
-        echo 'Restart not implemented...'
+        logger 'Restart not implemented...'
         # ~ ~ ~
     else
         # NONE
