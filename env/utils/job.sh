@@ -96,7 +96,7 @@ function trap_interrupt_signal {
 # VARIABLES #
 
 declare rundir="$HOME/.jobsh"
-declare cmd='' jobpath=${xjobpath:-''}
+declare cmdname='' jobpath=${xjobpath:-''}
 declare filekey='' logfile='' lockfile=${xlockfile:-''}
 declare childpid='' parentpid=${xparentpid:-''}
 declare selfpath=$(command_path "$0")
@@ -157,7 +157,7 @@ else
     fi
 
     # define main parameters
-    cmd=$1
+    cmdname=$1
     jobpath=$2
 
     # shift parameters
@@ -181,7 +181,7 @@ else
     logfile="$rundir/$filekey.log"
 
     # evaluate command
-    if [ "$cmd" = 'start' ]; then
+    if [ "$cmdname" = 'start' ]; then
 
         # START
 
@@ -216,11 +216,11 @@ else
 
         # ~ ~ ~
 
-    elif [ "$cmd" = 'stop' ]; then
+    elif [ "$cmdname" = 'stop' ]; then
         # STOP
         logger 'Stop not implemented...'
         # ~ ~ ~
-    elif [ "$cmd" = 'restart' ]; then
+    elif [ "$cmdname" = 'restart' ]; then
         # RESTART
         logger 'Restart not implemented...'
         # ~ ~ ~
