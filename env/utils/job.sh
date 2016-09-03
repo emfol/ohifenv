@@ -13,25 +13,28 @@ function command_path {
     local basedir fullpath
     [ $# -lt 1 ] && return 1
     fullpath=$(type -P "$1")
-    [ $? -ne 0 ] && return 1
-    if [ "${fullpath:0:1}" = '/' ]; then
-        echo "$fullpath"
-    else
+    [ $? -ne 0 -o -z "$fullpath" ] && return 2
+    if [ "${fullpath:0:1}" != '/' ]; then
         basedir=$(dirname "$fullpath")
-        if [ "$basedir" = '.' ]; then
-            basedir=$(pwd)
-        else
+        if [ "$basedir" != '.' ]; then
             cd "$basedir"
             basedir=$(pwd)
             cd "$OLDPWD"
+        else
+            basedir=$(pwd)
         fi
         echo "$basedir/$(basename "$fullpath")"
+    else
+        echo "$fullpath"
     fi
     return 0
 }
 
 function is_executable {
-    [ $# -gt 0 ] && type -P "$1" > /dev/null 2>&1
+    local fullpath
+    [ $# -lt 1 ] && return 1
+    fullpath=$(type -P "$1")
+    [ $? -eq 0 -a -n "$fullpath" ]
 }
 
 function is_daemon_mode {
@@ -77,7 +80,7 @@ function trap_detach_signal {
 }
 
 function trap_interrupt_signal {
-    logger 'iterrupt signal intercepted!'
+    logger 'interrupt signal intercepted!'
     logger 'sending termination signal (SIGTERM) to child process'
     kill -s SIGTERM $childpid
     logger "R: $?"
