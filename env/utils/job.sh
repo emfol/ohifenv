@@ -32,12 +32,14 @@ function command_path {
 }
 
 function is_valid_executable {
-    local fullpath
+    local fullpath origpath
     [ $# -lt 1 ] && return 1
     [ -z "$1" ] && return 2
-    fullpath=$(type -P "$1")
-    [ $? -ne 0 -o "$fullpath" != "$1" ] && return 3
-    [ "${fullpath:0:1}" != '/' ] && return 4
+    origpath=$1
+    [ "${origpath:0:1}" != '/' ] && return 3
+    fullpath=$(type -P "$origpath")
+    [ $? -ne 0 -o -z "$fullpath" ] && return 4
+    [ "$fullpath" != "$origpath" ] && return 5
     return 0
 }
 
