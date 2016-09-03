@@ -39,7 +39,7 @@ function is_executable {
 
 function is_daemon_mode {
     [ ! -t 0 -a ! -t 1 -a ! -t 2 -a \
-        -n "$parentpid" -a -n "$lockfile" -a -n "$job" -a \
+        -n "$parentpid" -a -n "$lockfile" -a -n "$jobpath" -a \
         -s "$lockfile" -a "$parentpid" = "$PPID" ]
 }
 
@@ -48,7 +48,7 @@ function sanity_check {
     local data ppid pid
 
     # check if supplied job is executable
-    is_executable "$job" || return 1
+    is_executable "$jobpath" || return 1
 
     # check the contents of lock file
     data=$(cut -s -d : -f 1,2 < "$lockfile")
@@ -95,8 +95,8 @@ function trap_interrupt_signal {
 #############
 # VARIABLES #
 
-declare rundir="$HOME/.jobs"
-declare cmd='' job=${xjobpath:-''}
+declare rundir="$HOME/.jobsh"
+declare cmd='' jobpath=${xjobpath:-''}
 declare filekey='' logfile='' lockfile=${xlockfile:-''}
 declare childpid='' parentpid=${xparentpid:-''}
 declare selfpath=$(command_path "$0")
@@ -128,9 +128,9 @@ if is_daemon_mode; then
     logger "R: $?"
 
     # dispatching job asynchronously
-    "$job" "$@" &
+    "$jobpath" "$@" &
     childpid=$!
-    logger "job dispatched: #$childpid \"$job\" ($*)"
+    logger "job dispatched: #$childpid \"$jobpath\" ($*)"
 
     # set iterruption trap
     trap 'trap_interrupt_signal' SIGTERM
@@ -158,24 +158,24 @@ else
 
     # define main parameters
     cmd=$1
-    job=$2
+    jobpath=$2
 
     # shift parameters
     shift 2
 
     # check if specified job exists
-    job=$(command_path "$job")
-    if [ $? -ne 0 ]; then
+    jobpath=$(command_path "$jobpath")
+    if [ $? -ne 0 -o -z "$jobpath" ]; then
         logger 'The specified job could not be found...'
         exit 1
     fi
 
     # set job related variables
-    filekey=${job#/}
+    filekey=${jobpath#/}
     filekey=${filekey//\//.}
     if [ ${#filekey} -gt 128 ]; then
         filekey=${filekey:$(( ${#filekey} - 128 ))}
-        filekey=${job#.}
+        filekey=${jobpath#.}
     fi
     lockfile="$rundir/$filekey.lock"
     logfile="$rundir/$filekey.log"
@@ -193,12 +193,12 @@ else
         touch "$lockfile"
 
         # # check for any hooks
-        # if is_executable "hook_$job"; then
-        #     "hook_$job" "${@:3}"
+        # if is_executable "hook_$jobpath"; then
+        #     "hook_$jobpath" "${@:3}"
         # fi
 
         # export necessary variables and initialize lock file
-        export xjobpath="$job" xlockfile="$lockfile" xparentpid="$$"
+        export xjobpath="$jobpath" xlockfile="$lockfile" xparentpid="$$"
         echo "$xparentpid:0" > "$xlockfile"
 
         # set detach signal handler (SIGUSR1)
