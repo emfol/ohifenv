@@ -32,42 +32,121 @@ function command_path {
 }
 
 function is_valid_executable {
-    local fullpath origpath
+    local filepath
     [ $# -lt 1 ] && return 1
     [ -z "$1" ] && return 2
-    origpath=$1
-    [ "${origpath:0:1}" != '/' ] && return 3
-    fullpath=$(type -P "$origpath")
-    [ $? -ne 0 -o -z "$fullpath" ] && return 4
-    [ "$fullpath" != "$origpath" ] && return 5
+    filepath=$1
+    [ "${filepath:0:1}" != '/' ] && return 3
+    [ -x "$filepath" ] || return 4
     return 0
 }
 
-function is_daemon_mode {
-    [ ! -t 0 -a ! -t 1 -a ! -t 2 -a \
-        -n "$clientpid" -a -n "$lockfile" -a -n "$jobpath" -a \
-        -s "$lockfile" -a "$clientpid" = "$PPID" ]
+function is_monitor_mode {
+    # not in monitor mode if any standard fd is a terminal
+    [ -t 0 -o -t 1 -o -t 2 ] && return 1
+    # not in monitor mode if any of these variables is empty
+    [ -z "$jobpath" -o -z "$lockfile" -o -z "$clientpid" ] && return 2
+    # not in monitor mode if client PID is not PPID
+    [ "$clientpid" != "$PPID" ] && return 3
+    # not in monitor mode if lockfile is not a file or is empty
+    [ ! -s "$lockfile" ] && return 4
+    return 0
 }
 
 function sanity_check {
 
-    local data ppid pid
+    local data cpid mpid
 
-    # check if supplied job is executable
+    # check if job path is a valid executable
     is_valid_executable "$jobpath" || return 1
 
+    # check if lockfile path is valid
+    is_valid_lockfile "$jobpath" "$lockfile" || return 2
+
     # check the contents of lock file
-    data=$(cut -s -d : -f 1,2 < "$lockfile")
-    ppid=${data%:*}
-    pid=${data#*:}
-    [ "$ppid" != "$clientpid" -o "$pid" != '0' ] && return 2
+    read data < "$lockfile"
+    [ -z "$data" ] && return 3
+    cpid=${data%:*}
+    mpid=${data#*:}
+    [ "$cpid" != "$clientpid" -o "$mpid" != '0' ] && return 4
 
-    # save daemon process id
-    echo "$clientpid:$$" > "$lockfile"
+    # save monitor process id
+    monitorpid=$$
+    echo "$clientpid:$monitorpid" > "$lockfile"
 
-    # make sure the parent process is alive
-    kill -n 0 "$clientpid" || return 3
+    # make sure the client process is alive
+    kill -n 0 "$clientpid" || return 5
 
+    return 0
+
+}
+
+function getjobkey {
+    local -i maxlen=80
+    local keyname
+    [ $# -lt 1 ] && return 1
+    [ -z "$1" ] && return 2
+    keyname=$1
+    keyname=${keyname// /_}
+    keyname=${keyname#/}
+    keyname=${keyname//\//.}
+    if [ ${#keyname} -gt $maxlen ]; then
+        keyname=${keyname:$(( ${#keyname} - $maxlen ))}
+        keyname=${keyname#.}
+    fi
+    echo "$keyname"
+    return 0
+}
+
+function getwritablefile {
+    local filepath
+    [ $# -lt 1 ] && return 1
+    [ -z "$1" ] && return 2
+    filepath="$rundir/$1"
+    touch "$filepath" > /dev/null 2>&1 || return 3
+    [ -w "$filepath" ] || return 4
+    echo "$filepath"
+    return 0
+}
+
+function getlockfilename {
+    local keyname
+    [ $# -lt 1 ] && return 1
+    [ -z "$1" ] && return 2
+    keyname=$(getjobkey "$1")
+    [ $? -ne 0 -o -z "$keyname" ] && return 3
+    echo "${keyname}.lock"
+    return 0
+}
+
+function getlogfile {
+    local extname keyname filepath
+    [ $# -lt 2 ] && return 1
+    [ "$1" != '-m' -a "$1" != '-j' ] && return 2
+    [ -z "$2" ] && return 3
+    keyname=$(getjobkey "$2")
+    [ $? -ne 0 -o -z "$keyname" ] && return 4
+    if [ "$1" = '-j' ]; then
+        extname='job'
+    else
+        extname='mon'
+    fi
+    filepath=$(getwritablefile "${keyname}.${extname}.log")
+    [ $? -ne 0 -o -z "$filepath" ] && return 5
+    echo "$filepath"
+    return 0
+}
+
+function is_valid_lockfile {
+    local jpath lpath rpath
+    [ $# -lt 2 ] && return 1
+    [ -z "$1" -o -z "$2" ] && return 2
+    jpath=$1
+    lpath=$(basename "$2")
+    rpath=$(getlockfilename "$jpath")
+    [ $? -ne 0 -o -z "$rpath" ] && return 3
+    [ "$rpath" != "$lpath" ] && return 4
+    return 0
 }
 
 function clean_up {
@@ -93,6 +172,7 @@ function trap_interrupt_signal {
     logger 'waiting for job status code'
     wait $jobpid
     logger "R: $?"
+    # clean up and leave
     clean_up
     logger 'exit by interrupt... bye!'
     exit 0
@@ -101,10 +181,11 @@ function trap_interrupt_signal {
 #############
 # VARIABLES #
 
-declare -i result=0
+declare item='' result=0
 declare rundir="$HOME/.jobsh"
+declare emptyfile="$rundir/.empty"
 declare cmdname='' jobpath=${xjobshjobpath:-''}
-declare filekey='' logfile='' lockfile=${xjobshlockfile:-''}
+declare logfile='' lockfile=${xjobshlockfile:-''}
 declare jobpid='' monitorpid='' clientpid=${xjobshclientpid:-''}
 declare selfpath=$(command_path "$0")
 
@@ -113,16 +194,11 @@ declare selfpath=$(command_path "$0")
 
 # check self reference
 
-if ! is_valid_executable "$selfpath"; then
-    logger "Self reference could not be resolved..."
-    exit 1
-fi
-
-if is_daemon_mode; then
+if is_monitor_mode; then
 
     # INSIDE MONITOR
 
-    logger "[ monitor init ] $(date -u)"
+    logger "[ MONITOR INIT ] $(date -u)"
 
     # perform sanity check
     sanity_check
@@ -132,9 +208,19 @@ if is_daemon_mode; then
         exit 1
     fi
 
-    logger 'sanity check passed'
+    logger "sanity check passed! monitor PID is #$monitorpid"
 
-    # ignore SIGHUP
+    # create log file for job
+    logger 'creating output file for job'
+    logfile=$(getlogfile -j "$jobpath")
+    if [ $? -ne 0 -o -z "$logfile" ]; then
+        logger 'aborting... output file could not be created'
+        exit 1
+    fi
+    logger "done! job output is going to $logfile"
+
+    # ignore SIGHUP and SIGINT
+    trap '' SIGINT
     trap '' SIGHUP
 
     # detach from parent process
@@ -142,27 +228,52 @@ if is_daemon_mode; then
     kill -s SIGUSR1 "$clientpid"
     logger "R: $?"
 
+    # log job dispatch
+    logger "dispatching job \"$jobpath\""
+    for item in "$@"; do
+        logger "-- arg: $item"
+    done
+
     # dispatching job asynchronously
-    "$jobpath" "$@" &
+    "$jobpath" "$@" > "$logfile" 2>&1 &
     jobpid=$!
-    logger "job dispatched: #$jobpid \"$jobpath\" ($*)"
+    logger "done! job PID is #$jobpid"
 
     # set iterruption trap
+    logger 'setting interrupt trap'
     trap 'trap_interrupt_signal' SIGTERM
+    logger "R: $?"
 
     logger 'waiting for job completion'
     wait $jobpid
     logger "job exited with code: $?"
 
+    # clean up and leave
     clean_up
     logger 'clean exit... bye!'
 
 else
 
+    # make sure self path has been correctly resolved
+    if ! is_valid_executable "$selfpath"; then
+        logger 'Self reference could not be resolved...'
+        exit 1
+    fi
+
     # make sure jobs directory exists
     if ! mkdir -p "$rundir" > /dev/null 2>&1; then
-        logger 'jobs directory could not be created'
+        logger 'Jobs directory could not be created...'
         exit 1
+    fi
+
+    # make sure empty file exists
+    if [ ! -f "$emptyfile" ]; then
+        touch "$emptyfile" > /dev/null 2>&1
+        if [ $? -ne 0 ]; then
+            logger 'Empty file could not be created...'
+            exit 1
+        fi
+        chmod 444 "$emptyfile"
     fi
 
     # check arguments
@@ -185,20 +296,19 @@ else
         exit 1
     fi
 
+    # check if specified job is valid
     if ! is_valid_executable "$jobpath"; then
-        logger 'The absolute path for specified job could not be reliably determined...'
+        logger 'The absolute path for the specified job could not be reliably determined...'
         exit 1
     fi
 
-    # set job related variables
-    filekey=${jobpath#/}
-    filekey=${filekey//\//.}
-    if [ ${#filekey} -gt 128 ]; then
-        filekey=${filekey:$(( ${#filekey} - 128 ))}
-        filekey=${jobpath#.}
+    # get lockfile based on job path
+    lockfile=$(getlockfilename "$jobpath")
+    if [ $? -ne 0 -o -z "$lockfile" ]; then
+        logger 'Error determining lock file path...'
+        exit 1
     fi
-    lockfile="$rundir/$filekey.lock"
-    logfile="$rundir/$filekey.log"
+    lockfile="$rundir/$lockfile"
 
     # evaluate command
     if [ "$cmdname" = 'start' ]; then
@@ -209,9 +319,20 @@ else
             logger 'The specified job seems to be already running...'
             exit 1
         fi
-        # create lock
-        touch "$lockfile"
 
+        # create lock
+        touch "$lockfile" > /dev/null 2>&1
+        if [ $? -ne 0 ]; then
+            logger 'A lock file for the specified job could not be created...'
+            exit 1
+        fi
+
+        # get logfile based on job path
+        logfile=$(getlogfile -m "$jobpath")
+        if [ $? -ne 0 -o -z "$logfile" ]; then
+            logger 'Error creating monitor log file...'
+            exit 1
+        fi
         # # check for any hooks
         # if is_valid_executable "hook_$jobpath"; then
         #     "hook_$jobpath" "${@:3}"
@@ -225,7 +346,8 @@ else
         trap 'trap_detach_signal' SIGUSR1
 
         # dispatch monitor process and wait for detach signal (SIGUSR1)
-        "$selfpath" "$@" < /dev/null >> "$logfile" 2>&1 &
+        # ... make sure no standard fd is a terminal
+        "$selfpath" "$@" < "$emptyfile" >> "$logfile" 2>&1 &
         monitorpid=$!
         wait $monitorpid
 
