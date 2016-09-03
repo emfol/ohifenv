@@ -39,8 +39,8 @@ function is_executable {
 
 function is_daemon_mode {
     [ ! -t 0 -a ! -t 1 -a ! -t 2 -a \
-        -n "$parentpid" -a -n "$lockfile" -a -n "$jobpath" -a \
-        -s "$lockfile" -a "$parentpid" = "$PPID" ]
+        -n "$clientpid" -a -n "$lockfile" -a -n "$jobpath" -a \
+        -s "$lockfile" -a "$clientpid" = "$PPID" ]
 }
 
 function sanity_check {
@@ -54,13 +54,13 @@ function sanity_check {
     data=$(cut -s -d : -f 1,2 < "$lockfile")
     ppid=${data%:*}
     pid=${data#*:}
-    [ "$ppid" != "$parentpid" -o "$pid" != '0' ] && return 2
+    [ "$ppid" != "$clientpid" -o "$pid" != '0' ] && return 2
 
     # save daemon process id
-    echo "$parentpid:$$" > "$lockfile"
+    echo "$clientpid:$$" > "$lockfile"
 
     # make sure the parent process is alive
-    kill -n 0 "$parentpid" || return 3
+    kill -n 0 "$clientpid" || return 3
 
 }
 
@@ -81,11 +81,11 @@ function trap_detach_signal {
 
 function trap_interrupt_signal {
     logger 'interrupt signal intercepted!'
-    logger 'sending termination signal (SIGTERM) to child process'
-    kill -s SIGTERM $childpid
+    logger 'sending termination signal (SIGTERM) to job process'
+    kill -s SIGTERM $jobpid
     logger "R: $?"
-    logger 'waiting for child process status code'
-    wait $childpid
+    logger 'waiting for job status code'
+    wait $jobpid
     logger "R: $?"
     clean_up
     logger 'exit by interrupt... bye!'
@@ -96,9 +96,9 @@ function trap_interrupt_signal {
 # VARIABLES #
 
 declare rundir="$HOME/.jobsh"
-declare cmdname='' jobpath=${xjobpath:-''}
-declare filekey='' logfile='' lockfile=${xlockfile:-''}
-declare childpid='' parentpid=${xparentpid:-''}
+declare cmdname='' jobpath=${xjobshjobpath:-''}
+declare filekey='' logfile='' lockfile=${xjobshlockfile:-''}
+declare jobpid='' monitorpid='' clientpid=${xjobshclientpid:-''}
 declare selfpath=$(command_path "$0")
 declare -i ival
 
@@ -124,20 +124,20 @@ if is_daemon_mode; then
 
     # detach from parent process
     logger 'sending detach signal (SIGUSR1) to parent process'
-    kill -s SIGUSR1 "$parentpid"
+    kill -s SIGUSR1 "$clientpid"
     logger "R: $?"
 
     # dispatching job asynchronously
     "$jobpath" "$@" &
-    childpid=$!
-    logger "job dispatched: #$childpid \"$jobpath\" ($*)"
+    jobpid=$!
+    logger "job dispatched: #$jobpid \"$jobpath\" ($*)"
 
     # set iterruption trap
     trap 'trap_interrupt_signal' SIGTERM
 
-    logger 'waiting for child process completion'
-    wait $childpid
-    logger "child proccess exited with code: $?"
+    logger 'waiting for job completion'
+    wait $jobpid
+    logger "job exited with code: $?"
 
     clean_up
     logger 'clean exit... bye!'
@@ -198,16 +198,16 @@ else
         # fi
 
         # export necessary variables and initialize lock file
-        export xjobpath="$jobpath" xlockfile="$lockfile" xparentpid="$$"
-        echo "$xparentpid:0" > "$xlockfile"
+        export xjobshjobpath="$jobpath" xjobshlockfile="$lockfile" xjobshclientpid="$$"
+        echo "$xjobshclientpid:0" > "$xjobshlockfile"
 
         # set detach signal handler (SIGUSR1)
         trap 'trap_detach_signal' SIGUSR1
 
-        # dispatch child process and wait for detach signal (SIGUSR1)
+        # dispatch monitor process and wait for detach signal (SIGUSR1)
         "$selfpath" "$@" < /dev/null >> "$logfile" 2>&1 &
-        childpid=$!
-        wait $childpid
+        monitorpid=$!
+        wait $monitorpid
 
         # ... execution should not reach this point
         clean_up
