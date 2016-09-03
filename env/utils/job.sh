@@ -12,8 +12,9 @@ function print_usage {
 function command_path {
     local basedir fullpath
     [ $# -lt 1 ] && return 1
+    [ -z "$1" ] && return 2
     fullpath=$(type -P "$1")
-    [ $? -ne 0 -o -z "$fullpath" ] && return 2
+    [ $? -ne 0 -o -z "$fullpath" ] && return 3
     if [ "${fullpath:0:1}" != '/' ]; then
         basedir=$(dirname "$fullpath")
         if [ "$basedir" != '.' ]; then
@@ -30,11 +31,14 @@ function command_path {
     return 0
 }
 
-function is_executable {
+function is_valid_executable {
     local fullpath
     [ $# -lt 1 ] && return 1
+    [ -z "$1" ] && return 2
     fullpath=$(type -P "$1")
-    [ $? -eq 0 -a -n "$fullpath" ]
+    [ $? -ne 0 -o "$fullpath" != "$1" ] && return 3
+    [ "${fullpath:0:1}" != '/' ] && return 4
+    return 0
 }
 
 function is_daemon_mode {
@@ -48,7 +52,7 @@ function sanity_check {
     local data ppid pid
 
     # check if supplied job is executable
-    is_executable "$jobpath" || return 1
+    is_valid_executable "$jobpath" || return 1
 
     # check the contents of lock file
     data=$(cut -s -d : -f 1,2 < "$lockfile")
@@ -95,25 +99,34 @@ function trap_interrupt_signal {
 #############
 # VARIABLES #
 
+declare -i result=0
 declare rundir="$HOME/.jobsh"
 declare cmdname='' jobpath=${xjobshjobpath:-''}
 declare filekey='' logfile='' lockfile=${xjobshlockfile:-''}
 declare jobpid='' monitorpid='' clientpid=${xjobshclientpid:-''}
 declare selfpath=$(command_path "$0")
-declare -i ival
 
 ########
 # MAIN #
 
+# check self reference
+
+if ! is_valid_executable "$selfpath"; then
+    logger "Self reference could not be resolved..."
+    exit 1
+fi
+
 if is_daemon_mode; then
 
-    logger "[ daemon init ] $(date -u)"
+    # INSIDE MONITOR
+
+    logger "[ monitor init ] $(date -u)"
 
     # perform sanity check
     sanity_check
-    ival=$?
-    if [ $ival -ne 0 ]; then
-        logger "aborting... bad result for sanity check ($ival)"
+    result=$?
+    if [ $result -ne 0 ]; then
+        logger "aborting... bad result for sanity check ($result)"
         exit 1
     fi
 
@@ -123,7 +136,7 @@ if is_daemon_mode; then
     trap '' SIGHUP
 
     # detach from parent process
-    logger 'sending detach signal (SIGUSR1) to parent process'
+    logger 'sending detach signal (SIGUSR1) to client process'
     kill -s SIGUSR1 "$clientpid"
     logger "R: $?"
 
@@ -170,6 +183,11 @@ else
         exit 1
     fi
 
+    if ! is_valid_executable "$jobpath"; then
+        logger 'The absolute path for specified job could not be reliably determined...'
+        exit 1
+    fi
+
     # set job related variables
     filekey=${jobpath#/}
     filekey=${filekey//\//.}
@@ -193,7 +211,7 @@ else
         touch "$lockfile"
 
         # # check for any hooks
-        # if is_executable "hook_$jobpath"; then
+        # if is_valid_executable "hook_$jobpath"; then
         #     "hook_$jobpath" "${@:3}"
         # fi
 
