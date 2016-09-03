@@ -35,7 +35,8 @@ function is_executable {
 }
 
 function is_daemon_mode {
-    [ -n "$parentpid" -a -n "$lockfile" -a -n "$job" -a \
+    [ ! -t 0 -a ! -t 1 -a ! -t 2 -a \
+        -n "$parentpid" -a -n "$lockfile" -a -n "$job" -a \
         -s "$lockfile" -a "$parentpid" = "$PPID" ]
 }
 
@@ -60,11 +61,6 @@ function sanity_check {
 
 }
 
-function release_parent {
-    logger 'Done!'
-    exit 0
-}
-
 function clean_up {
     rm -rf "$lockfile"
 }
@@ -73,7 +69,14 @@ function logger {
     [ $# -gt 0 ] && printf ' -- %s\n' "$*"
 }
 
-function interrupt_child {
+# ... SIGNAL HANDLERS
+
+function trap_detach_signal {
+    logger 'Done!'
+    exit 0
+}
+
+function trap_interrupt_signal {
     logger 'iterrupt signal intercepted!'
     logger 'sending termination signal (SIGTERM) to child process'
     kill -s SIGTERM $childpid
@@ -116,8 +119,8 @@ if is_daemon_mode; then
     # ignore SIGHUP
     trap '' SIGHUP
 
-    # release parent process
-    logger 'sending release signal (SIGUSR1) to parent process'
+    # detach from parent process
+    logger 'sending detach signal (SIGUSR1) to parent process'
     kill -s SIGUSR1 "$parentpid"
     logger "R: $?"
 
@@ -127,7 +130,7 @@ if is_daemon_mode; then
     logger "job dispatched: #$childpid \"$job\" ($*)"
 
     # set iterruption trap
-    trap 'interrupt_child' SIGTERM
+    trap 'trap_interrupt_signal' SIGTERM
 
     logger 'waiting for child process completion'
     wait $childpid
@@ -169,6 +172,7 @@ else
     filekey=${filekey//\//.}
     if [ ${#filekey} -gt 128 ]; then
         filekey=${filekey:$(( ${#filekey} - 128 ))}
+        filekey=${job#.}
     fi
     lockfile="$rundir/$filekey.lock"
     logfile="$rundir/$filekey.log"
@@ -194,10 +198,10 @@ else
         export xjobpath="$job" xlockfile="$lockfile" xparentpid="$$"
         echo "$xparentpid:0" > "$xlockfile"
 
-        # set SIGUSR1 handler
-        trap 'release_parent' SIGUSR1
+        # set detach signal handler (SIGUSR1)
+        trap 'trap_detach_signal' SIGUSR1
 
-        # dispatch child process (daemon) and wait for SIGUSR1 signal
+        # dispatch child process and wait for detach signal (SIGUSR1)
         "$selfpath" "$@" < /dev/null >> "$logfile" 2>&1 &
         childpid=$!
         wait $childpid
