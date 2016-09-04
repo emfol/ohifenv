@@ -156,6 +156,7 @@ then
         git config --global color.ui 'true'
         git config --global user.name "$git_user_name"
         git config --global user.email "$git_user_email"
+        git config --global alias.lg "log --color --graph --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset' --abbrev-commit"
         echo 'Done!'
     fi
     # clone repos...
