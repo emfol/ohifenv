@@ -149,6 +149,28 @@ function is_valid_lockfile {
     return 0
 }
 
+function getmonitorpid {
+    local pid
+    # lockfile exists?
+    [ -s "$lockfile" ] || return 1
+    # check the contents of lock file
+    read pid < "$lockfile"
+    [ -n "$pid" ] || return 2
+    # remove client pid
+    pid=${pid#*:}
+    [ -n "$pid" ] || return 3
+    # echo found pid
+    echo "$pid"
+    return 0
+}
+
+function is_process_alive {
+    [ $# -gt 0 ] || return 1
+    [ -n "$1" ] || return 2
+    kill -n 0 "$1" > /dev/null 2>&1 || return 3
+    return 0
+}
+
 function clean_up {
     rm -rf "$lockfile"
 }
@@ -181,7 +203,6 @@ function trap_interrupt_signal {
 #############
 # VARIABLES #
 
-declare item='' result=0
 declare rundir="$HOME/.jobsh"
 declare emptyfile="$rundir/.empty"
 declare cmdname='' jobpath=${xjobshjobpath:-''}
@@ -201,12 +222,14 @@ if is_monitor_mode; then
     logger "[ MONITOR INIT ] $(date -u)"
 
     # perform sanity check
+    declare result
     sanity_check
     result=$?
     if [ $result -ne 0 ]; then
         logger "aborting... bad result for sanity check ($result)"
         exit 1
     fi
+    unset -v result
 
     logger "sanity check passed! monitor PID is #$monitorpid"
 
@@ -219,8 +242,7 @@ if is_monitor_mode; then
     fi
     logger "done! job output is going to $logfile"
 
-    # ignore SIGHUP and SIGINT
-    trap '' SIGINT
+    # ignore SIGHUP (SIGINT is ignored by default for asynchronous tasks)
     trap '' SIGHUP
 
     # detach from parent process
@@ -230,9 +252,11 @@ if is_monitor_mode; then
 
     # log job dispatch
     logger "dispatching job \"$jobpath\""
+    declare item
     for item in "$@"; do
         logger "-- arg: $item"
     done
+    unset -v item
 
     # dispatching job asynchronously
     "$jobpath" "$@" > "$logfile" 2>&1 &
@@ -327,7 +351,7 @@ else
             exit 1
         fi
 
-        # get logfile based on job path
+        # create log file based on job path
         logfile=$(getlogfile -m "$jobpath")
         if [ $? -ne 0 -o -z "$logfile" ]; then
             logger 'Error creating monitor log file...'
@@ -359,8 +383,32 @@ else
         # ~ ~ ~
 
     elif [ "$cmdname" = 'stop' ]; then
+
         # STOP
-        logger 'Stop not implemented...'
+        monitorpid=$(getmonitorpid)
+        if [ $? -ne 0 -o -z "$monitorpid" ]; then
+            logger 'The specified job does not seem to be running...'
+            exit 1
+        fi
+
+        # send SIGTERM to monitor
+        logger "Sending stop request to process #${monitorpid}..."
+        kill -s SIGTERM "$monitorpid" > /dev/null 2>&1
+        if [ $? -ne 0 ]; then
+            logger 'Oops! Stop request failed...'
+            exit 1
+        fi
+        logger 'Done!'
+
+        logger 'Waiting for process completion...'
+        while true; do
+            is_process_alive "$monitorpid" || break
+            sleep 2
+        done
+        logger 'Done!'
+
+        # @TODO send SIGKILL if process takes too long to complete
+
         # ~ ~ ~
     elif [ "$cmdname" = 'restart' ]; then
         # RESTART
