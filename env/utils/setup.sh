@@ -10,6 +10,7 @@ basedir=$(abspath "$basedir")
 # main vars
 declare -i count status=0
 declare item resp='' origdir=$(pwd)
+declare binfile='' bindir='/usr/local/bin'
 # tj/n/node.js vars
 declare tjn_dir tjn_url="https://github.com/tj/n"
 # meteor vars
@@ -139,6 +140,33 @@ then
     fi
 else
     echo 'Meteor already installed!'
+fi
+
+# Create a link job.sh utility
+binfile='job.sh'
+if command_found "$binfile"
+then
+    echo 'The job.sh utility link is already installed'
+else
+    echo 'Creating link to job.sh utility'
+    # make sure target directory exists
+    if mkdir -p "$bindir" > /dev/null 2>&1; then
+        binfile="$basedir/$binfile"
+        if [ -x "$binfile" ]; then
+            if ln -s "$binfile" "$bindir" > /dev/null 2>&1; then
+                echo 'Done!'
+            else
+                print_error "Error! Link could not be created..."
+                let 'status|=16'
+            fi
+        else
+            print_error "Error! The target utility \"$binfile\" could not be created..."
+            let 'status|=16'
+        fi
+    else
+        print_error "Error! The directory \"$bindir\" could not be created..."
+        let 'status|=16'
+    fi
 fi
 
 # Do we have Git?

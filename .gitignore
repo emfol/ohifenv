@@ -1,2 +1,4 @@
 # ignore project source directory
-/src
+/src/
+/.idea/
+.DS_Store
