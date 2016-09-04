@@ -186,23 +186,18 @@ function trap_detach_signal {
     exit 0
 }
 
-function trap_interrupt_signal {
-    logger 'interrupt signal intercepted!'
+function trap_termination_signal {
+    logger 'SIGTERM intercepted!'
     logger 'sending termination signal (SIGTERM) to job process'
-    kill -s SIGTERM $jobpid
+    kill -s SIGTERM "$jobpid"
     logger "R: $?"
-    logger 'waiting for job status code'
-    wait $jobpid
-    logger "R: $?"
-    # clean up and leave
-    clean_up
-    logger 'exit by interrupt... bye!'
-    exit 0
+    sigret=2
 }
 
 #############
 # VARIABLES #
 
+declare retval=0 sigret=0
 declare rundir="$HOME/.jobsh"
 declare emptyfile="$rundir/.empty"
 declare cmdname='' jobpath=${xjobshjobpath:-''}
@@ -264,13 +259,28 @@ if is_monitor_mode; then
     logger "done! job PID is #$jobpid"
 
     # set iterruption trap
-    logger 'setting interrupt trap'
-    trap 'trap_interrupt_signal' SIGTERM
+    logger 'setting termination trap'
+    trap 'trap_termination_signal' SIGTERM
     logger "R: $?"
 
+    # prepare to wait
+    sigret=0
+    retval=0
+
+    # enter wait state
     logger 'waiting for job completion'
     wait $jobpid
-    logger "job exited with code: $?"
+    retval=$?
+
+    # check if returning from trap
+    if [ $sigret -gt 0 ]; then
+        logger "trap executed ( w: $retval, s: $sigret )"
+        logger 'waiting for interrupted job status code'
+        wait $jobpid
+        logger "R: $?"
+    else
+        logger "job exited with code: $retval"
+    fi
 
     # clean up and leave
     clean_up
