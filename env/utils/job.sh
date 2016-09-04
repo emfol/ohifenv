@@ -182,8 +182,7 @@ function logger {
 # ... SIGNAL HANDLERS
 
 function trap_detach_signal {
-    logger 'Done!'
-    exit 0
+    sigret=1
 }
 
 function trap_termination_signal {
@@ -265,7 +264,6 @@ if is_monitor_mode; then
 
     # prepare to wait
     sigret=0
-    retval=0
 
     # enter wait state
     logger 'waiting for job completion'
@@ -273,13 +271,20 @@ if is_monitor_mode; then
     retval=$?
 
     # check if returning from trap
-    if [ $sigret -gt 0 ]; then
-        logger "trap executed ( w: $retval, s: $sigret )"
-        logger 'waiting for interrupted job status code'
-        wait $jobpid
-        logger "R: $?"
-    else
+    if [ $sigret -eq 0 ]; then
+        # no trap executed
         logger "job exited with code: $retval"
+    else
+        # trap executed
+        logger "trap executed ( w: $retval, s: $sigret )"
+        if [ $sigret -eq 2 ]; then
+            # repeat wait call
+            logger 'waiting for interrupted job status code'
+            wait $jobpid
+            logger "R: $?"
+        else
+            logger "not expecting such trap return code: $sigret"
+        fi
     fi
 
     # clean up and leave
@@ -383,12 +388,29 @@ else
         # ... make sure no standard fd is a terminal
         "$selfpath" "$@" < "$emptyfile" >> "$logfile" 2>&1 &
         monitorpid=$!
-        wait $monitorpid
 
-        # ... execution should not reach this point
-        clean_up
-        logger 'Oops! The specified job died prematurely...'
-        exit 1
+        # prepare to wait
+        sigret=0
+
+        # enter wait state
+        wait $monitorpid
+        retval=$?
+
+        logger "( #: $monitorpid, w: $retval, s: $sigret )"
+
+        if [ $sigret -eq 0 ]; then
+            # no trap executed
+            logger "Oops! The job died prematurely with code #${retval}... :-("
+            clean_up
+        else
+            # trap executed
+            if [ $sigret -eq 1 ]; then
+                logger 'Done!'
+            else
+                logger "Oops! Not quite what we were expecting... ( s: $sigret )"
+            fi
+        fi
+
 
         # ~ ~ ~
 
