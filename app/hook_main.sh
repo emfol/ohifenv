@@ -9,6 +9,14 @@ declare argfile='/tmp/args-ohif.app.main.txt'
 declare -a binaries=() projects=()
 declare project='' projectdir='' config='' binary=''
 
+# make sure we are working on a brand new hook file...
+rm -rf "$argfile" > /dev/null 2>&1
+
+# this hook requires a terminal...
+if [ ! -t 0 -o ! -t 1 ]; then
+    echo 'This hook requires a terminal...'
+fi
+
 PS3='Which one would you like to run? '
 
 cd "$basedir"
@@ -69,7 +77,7 @@ fi
 
 echo 'Creating arguments file...'
 
-exec 3>&1 >"$argfile"
+exec 3>&1 > "$argfile"
 
 echo "$projectdir"
 echo "$binary"

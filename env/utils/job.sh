@@ -6,38 +6,41 @@ set -u
 # FUNCTIONS #
 
 function print_usage {
-    printf 'Usage:\n\t%s <start|stop|restart> <job> [ arg1 arg2 ... ]\n\n' "$0"
+    echo "Usage: $0 start  path/to/job [arg ...]"
+    echo "       $0 stop   path/to/job"
+    echo "       $0 status path/to/job [-m]"
+    echo "       $0 list"
 }
 
 function command_path {
-    local basedir fullpath
-    [ $# -lt 1 ] && return 1
-    [ -z "$1" ] && return 2
-    fullpath=$(type -P "$1")
-    [ $? -ne 0 -o -z "$fullpath" ] && return 3
-    if [ "${fullpath:0:1}" != '/' ]; then
-        basedir=$(dirname "$fullpath")
-        if [ "$basedir" != '.' ]; then
-            cd "$basedir"
+    local basedir abspath
+    [ $# -gt 0 ] || return 1
+    [ -n "$1" ] || return 2
+    abspath=$(type -P "$1")
+    [ $? -eq 0 -a -n "$abspath" ] || return 3
+    if [ "${abspath:0:1}" != '/' ]; then
+        basedir=$(dirname "$abspath")
+        abspath=$(basename "$abspath")
+        if [ "$basedir" = '.' ]; then
             basedir=$(pwd)
-            cd "$OLDPWD"
         else
+            cd "$basedir" > /dev/null 2>&1 || return 4
             basedir=$(pwd)
+            cd "$OLDPWD" > /dev/null 2>&1 || return 5
         fi
-        echo "$basedir/$(basename "$fullpath")"
-    else
-        echo "$fullpath"
+        abspath="$basedir/$abspath"
     fi
+    echo "$abspath"
     return 0
 }
 
 function is_valid_executable {
     local filepath
-    [ $# -lt 1 ] && return 1
-    [ -z "$1" ] && return 2
+    [ $# -gt 0 ] || return 1
     filepath=$1
-    [ "${filepath:0:1}" != '/' ] && return 3
-    [ -x "$filepath" ] || return 4
+    [ ${#filepath} -gt 1 ] || return 2
+    [ "${filepath:0:1}" = '/' ] || return 3
+    [ -f "$filepath" -a -x "$filepath" ] || return 4
     return 0
 }
 
@@ -45,11 +48,13 @@ function is_monitor_mode {
     # not in monitor mode if any standard fd is a terminal
     [ -t 0 -o -t 1 -o -t 2 ] && return 1
     # not in monitor mode if any of these variables is empty
-    [ -z "$jobpath" -o -z "$lockfile" -o -z "$clientpid" ] && return 2
+    [ -n "$jobpath" -a -n "$lockfile" -a -n "$clientpid" ] || return 2
     # not in monitor mode if client PID is not PPID
-    [ "$clientpid" != "$PPID" ] && return 3
-    # not in monitor mode if lockfile is not a file or is empty
-    [ ! -s "$lockfile" ] && return 4
+    [ "$clientpid" = "$PPID" ] || return 3
+    # not in monitor mode if lock file is not a file or is empty
+    [ -f "$lockfile" -a -s "$lockfile" ] || return 4
+    # not in monitor mode if job path is not an executable file
+    [ -f "$jobpath" -a -x "$jobpath" ] || return 5
     return 0
 }
 
@@ -60,21 +65,21 @@ function sanity_check {
     # check if job path is a valid executable
     is_valid_executable "$jobpath" || return 1
 
-    # check if lockfile path is valid
-    is_valid_lockfile "$jobpath" "$lockfile" || return 2
+    # check if lock file is readable and writable
+    [ -f "$lockfile" -a -r "$lockfile" -a -w "$lockfile" ] || return 2
 
     # check the contents of lock file
     read data < "$lockfile"
-    [ -z "$data" ] && return 3
+    [ -n "$data" ] || return 3
     cpid=${data%:*}
     mpid=${data#*:}
-    [ "$cpid" != "$clientpid" -o "$mpid" != '0' ] && return 4
+    [ "$cpid" = "$clientpid" -a "$mpid" = '0' ] || return 4
 
-    # save monitor process id
+    # store monitor PID
     monitorpid=$$
     echo "$clientpid:$monitorpid" > "$lockfile"
 
-    # make sure the client process is alive
+    # make sure the client (parent) process is alive
     kill -n 0 "$clientpid" || return 5
 
     return 0
@@ -84,11 +89,11 @@ function sanity_check {
 function getjobkey {
     local -i maxlen=80
     local keyname
-    [ $# -lt 1 ] && return 1
-    [ -z "$1" ] && return 2
+    [ $# -gt 0 ] || return 1
+    [ -n "$1" ] || return 2
     keyname=$1
-    keyname=${keyname// /_}
     keyname=${keyname#/}
+    keyname=${keyname// /_}
     keyname=${keyname//\//.}
     if [ ${#keyname} -gt $maxlen ]; then
         keyname=${keyname:$(( ${#keyname} - $maxlen ))}
@@ -98,68 +103,56 @@ function getjobkey {
     return 0
 }
 
-function getwritablefile {
-    local filepath
-    [ $# -lt 1 ] && return 1
-    [ -z "$1" ] && return 2
-    filepath="$rundir/$1"
-    touch "$filepath" > /dev/null 2>&1 || return 3
-    [ -w "$filepath" ] || return 4
-    echo "$filepath"
-    return 0
-}
-
-function getlockfilename {
+function getlockfilepath {
     local keyname
-    [ $# -lt 1 ] && return 1
-    [ -z "$1" ] && return 2
+    [ $# -gt 0 ] || return 1
+    [ -n "$1" ] || return 2
     keyname=$(getjobkey "$1")
-    [ $? -ne 0 -o -z "$keyname" ] && return 3
-    echo "${keyname}.lock"
+    [ $? -eq 0 -a -n "$keyname" ] || return 3
+    echo "$rundir/${keyname}.lock"
     return 0
 }
 
 function getlogfile {
-    local extname keyname filepath
-    [ $# -lt 2 ] && return 1
-    [ "$1" != '-m' -a "$1" != '-j' ] && return 2
-    [ -z "$2" ] && return 3
+    local keyname extname filepath optarg=''
+    [ $# -ge 2 ] || return 1
+    [ "$1" = '-m' -o "$1" = '-j' ] || return 2
+    [ -n "$2" ] || return 3
+    # check for optional argument
+    if [ $# -gt 2 ]; then
+        optarg=$3
+    fi
     keyname=$(getjobkey "$2")
-    [ $? -ne 0 -o -z "$keyname" ] && return 4
+    [ $? -eq 0 -a -n "$keyname" ] || return 4
     if [ "$1" = '-j' ]; then
         extname='job'
     else
         extname='mon'
     fi
-    filepath=$(getwritablefile "${keyname}.${extname}.log")
-    [ $? -ne 0 -o -z "$filepath" ] && return 5
+    filepath="$rundir/${keyname}.${extname}.log"
+    if [ "$optarg" = '-ro' ]; then
+        [ -f "$filepath" -a -r "$filepath" ] || return 5
+    else
+        touch "$filepath" > /dev/null 2>&1 || return 6
+        [ -f "$filepath" -a -w "$filepath" ] || return 7
+    fi
     echo "$filepath"
     return 0
 }
 
-function is_valid_lockfile {
-    local jpath lpath rpath
-    [ $# -lt 2 ] && return 1
-    [ -z "$1" -o -z "$2" ] && return 2
-    jpath=$1
-    lpath=$(basename "$2")
-    rpath=$(getlockfilename "$jpath")
-    [ $? -ne 0 -o -z "$rpath" ] && return 3
-    [ "$rpath" != "$lpath" ] && return 4
-    return 0
-}
-
 function getmonitorpid {
-    local pid
-    # lockfile exists?
-    [ -s "$lockfile" ] || return 1
-    # check the contents of lock file
-    read pid < "$lockfile"
-    [ -n "$pid" ] || return 2
+    local pid filepath
+    [ $# -gt 0 ] || return 1
+    [ -n "$1" ] || return 2
+    filepath=$1
+    # file exists?
+    [ -f "$filepath" -a -r "$filepath" ] || return 3
+    # check file contents
+    read pid < "$filepath"
+    [ -n "$pid" ] || return 4
     # remove client pid
     pid=${pid#*:}
-    [ -n "$pid" ] || return 3
-    # echo found pid
+    [ -n "$pid" ] || return 5
     echo "$pid"
     return 0
 }
@@ -294,15 +287,19 @@ if is_monitor_mode; then
 else
 
     # make sure self path has been correctly resolved
-    if ! is_valid_executable "$selfpath"; then
+    is_valid_executable "$selfpath"
+    if [ $? -ne 0 ]; then
         logger 'Self reference could not be resolved...'
         exit 1
     fi
 
     # make sure jobs directory exists
-    if ! mkdir -p "$rundir" > /dev/null 2>&1; then
-        logger 'Jobs directory could not be created...'
-        exit 1
+    if [ ! -d "$rundir" ]; then
+        mkdir -p "$rundir" > /dev/null 2>&1
+        if [ $? -ne 0 ]; then
+            logger 'Jobs directory could not be created...'
+            exit 1
+        fi
     fi
 
     # make sure empty file exists
@@ -312,45 +309,63 @@ else
             logger 'Empty file could not be created...'
             exit 1
         fi
-        chmod 444 "$emptyfile"
+        chmod 444 "$emptyfile" > /dev/null 2>&1
+        if [ $? -ne 0 ]; then
+            logger 'Error changing mode of empty file...'
+            exit 1
+        fi
     fi
 
     # check arguments
-    if [ $# -lt 2 ]; then
+    if [ $# -lt 1 ]; then
         print_usage
         exit 1
     fi
 
-    # define main parameters
+    # define command name
     cmdname=$1
-    jobpath=$2
+    # ... and shift parameters
+    shift 1
 
-    # shift parameters
-    shift 2
+    # check if command requires a job argument
+    if [[ "$cmdname" =~ ^(start|stop|status)$ ]]; then
 
-    # check if specified job exists
-    jobpath=$(command_path "$jobpath")
-    if [ $? -ne 0 -o -z "$jobpath" ]; then
-        logger 'The specified job could not be found...'
-        exit 1
+        # check arguments
+        if [ $# -lt 1 ]; then
+            print_usage
+            exit 1
+        fi
+
+        # define job
+        jobpath=$1
+        # ... and shift parameters
+        shift 1
+
+        # check if specified job exists
+        jobpath=$(command_path "$jobpath")
+        if [ $? -ne 0 -o -z "$jobpath" ]; then
+            logger 'The specified job could not be found...'
+            exit 1
+        fi
+
+        # check if specified job is valid
+        is_valid_executable "$jobpath"
+        if [ $? -ne 0 ]; then
+            logger 'The absolute path for the specified job could not be reliably determined...'
+            exit 1
+        fi
+
+        # get lockfile based on job path
+        lockfile=$(getlockfilepath "$jobpath")
+        if [ $? -ne 0 -o -z "$lockfile" ]; then
+            logger 'Error determining lock file path...'
+            exit 1
+        fi
+
     fi
 
-    # check if specified job is valid
-    if ! is_valid_executable "$jobpath"; then
-        logger 'The absolute path for the specified job could not be reliably determined...'
-        exit 1
-    fi
-
-    # get lockfile based on job path
-    lockfile=$(getlockfilename "$jobpath")
-    if [ $? -ne 0 -o -z "$lockfile" ]; then
-        logger 'Error determining lock file path...'
-        exit 1
-    fi
-    lockfile="$rundir/$lockfile"
-
-    # evaluate command
-    if [ "$cmdname" = 'start' ]; then
+    # execute command
+    if [ "$cmdname" = 'start' -a -n "$jobpath" -a -n "$lockfile" ]; then
 
         # START
 
@@ -366,16 +381,17 @@ else
             exit 1
         fi
 
-        # create log file based on job path
-        logfile=$(getlogfile -m "$jobpath")
-        if [ $? -ne 0 -o -z "$logfile" ]; then
-            logger 'Error creating monitor log file...'
-            exit 1
-        fi
         # # check for any hooks
         # if is_valid_executable "hook_$jobpath"; then
         #     "hook_$jobpath" "${@:3}"
         # fi
+
+        # create log file for monitor based on job path
+        logfile=$(getlogfile -m "$jobpath")
+        if [ $? -ne 0 -o -z "$logfile" ]; then
+            logger 'Error creating log file for monitor process...'
+            exit 1
+        fi
 
         # export necessary variables and initialize lock file
         export xjobshjobpath="$jobpath" xjobshlockfile="$lockfile" xjobshclientpid="$$"
@@ -386,7 +402,7 @@ else
 
         # dispatch monitor process and wait for detach signal (SIGUSR1)
         # ... make sure no standard fd is a terminal
-        "$selfpath" "$@" < "$emptyfile" >> "$logfile" 2>&1 &
+        "$selfpath" "$@" < "$emptyfile" > "$logfile" 2>&1 &
         monitorpid=$!
 
         # prepare to wait
@@ -411,13 +427,12 @@ else
             fi
         fi
 
-
         # ~ ~ ~
-
-    elif [ "$cmdname" = 'stop' ]; then
+    elif [ "$cmdname" = 'stop' -a -n "$jobpath" -a -n "$lockfile" ]; then
 
         # STOP
-        monitorpid=$(getmonitorpid)
+
+        monitorpid=$(getmonitorpid "$lockfile")
         if [ $? -ne 0 -o -z "$monitorpid" ]; then
             logger 'The specified job does not seem to be running...'
             exit 1
@@ -442,14 +457,49 @@ else
         # @TODO send SIGKILL if process takes too long to complete
 
         # ~ ~ ~
-    elif [ "$cmdname" = 'restart' ]; then
-        # RESTART
-        logger 'Restart not implemented...'
+    elif [ "$cmdname" = 'status' -a -n "$jobpath" -a -n "$lockfile" ]; then
+
+        # STATUS
+
+        declare result optarg='-j'
+
+        monitorpid=$(getmonitorpid "$lockfile")
+        result=$?
+        [ $result -eq 0 -a -n "$monitorpid" ] && logger '[ RUNNING ]' || logger "[ NOT RUNNING ] #$result"
+
+        if [ $# -gt 0 ] && [ "$1" = '-m' ]; then
+            optarg='-m'
+        fi
+
+        logfile=$(getlogfile "$optarg" "$jobpath" -ro)
+        result=$?
+        if [ $result -eq 0 -a -n "$logfile" ]; then
+            logger "[ $logfile ]"
+            cat "$logfile"
+        else
+            logger "Nothing to print... #$result"
+            exit 1
+        fi
+
+        unset -v result optarg
+
+        # ~ ~ ~
+    elif [ "$cmdname" = 'list' ]; then
+
+        # LIST
+
+        ls -p "$rundir" | grep -e '.\.lock$' | while read line; do
+            echo "${line%.lock}"
+        done;
+
         # ~ ~ ~
     else
+
         # NONE
+
         print_usage
         exit 1
+
         # ~ ~ ~
     fi
 
