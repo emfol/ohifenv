@@ -15,6 +15,7 @@ rm -rf "$argfile" > /dev/null 2>&1
 # this hook requires a terminal...
 if [ ! -t 0 -o ! -t 1 ]; then
     echo 'This hook requires a terminal...'
+    exit 1
 fi
 
 PS3='Which one would you like to run? '
@@ -28,7 +29,7 @@ done
 
 if [ ${#projects[@]} -lt 1 ]; then
     echo 'No projects found...'
-    exit 1
+    exit 2
 fi
 
 echo 'The following projects were found:'
@@ -41,7 +42,7 @@ done
 
 if [ -z "$project" ]; then
     echo 'Aborting! No project selected...'
-    exit 2
+    exit 3
 fi
 
 projectdir="src/$project"
@@ -55,7 +56,7 @@ done
 
 if [ ${#binaries[@]} -lt 1 ]; then
     echo 'No binaries found...'
-    exit 3
+    exit 4
 fi
 
 echo 'The following binaries were found:'
@@ -77,15 +78,14 @@ fi
 
 echo 'Creating arguments file...'
 
-exec 3>&1 > "$argfile"
+exec 3>&1 > "$argfile" || exit 5
 
 echo "$projectdir"
 echo "$binary"
 echo "$config"
 
-exec 1>&- 1>&3-
+exec 1>&- 1>&3- || exit 6
 
 echo 'Done!'
-echo 'Bye!'
 
 exit 0

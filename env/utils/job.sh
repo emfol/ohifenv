@@ -195,6 +195,7 @@ declare emptyfile="$rundir/.empty"
 declare cmdname='' jobpath=${xjobshjobpath:-''}
 declare logfile='' lockfile=${xjobshlockfile:-''}
 declare jobpid='' monitorpid='' clientpid=${xjobshclientpid:-''}
+declare jobhook=''
 declare selfpath=$(command_path "$0")
 
 ########
@@ -381,15 +382,30 @@ else
             exit 1
         fi
 
-        # # check for any hooks
-        # if is_valid_executable "hook_$jobpath"; then
-        #     "hook_$jobpath" "${@:3}"
-        # fi
+        # lock file created!
+        # ... on error, clean_up routine must be executed...
+
+        # check for any hooks
+        jobhook="$(dirname "$jobpath")/hook_$(basename "$jobpath")"
+        is_valid_executable "$jobhook"
+        if [ $? -eq 0 ]; then
+            logger "Job hook found! Executing \"$jobhook\"..."
+            "$jobhook"
+            retval=$?
+            if [ $retval -eq 0 ]; then
+                logger 'Success! Proceeding with job execution...'
+            else
+                logger "Aborting! Job hook return error code #${retval}..."
+                clean_up
+                exit 1
+            fi
+        fi
 
         # create log file for monitor based on job path
         logfile=$(getlogfile -m "$jobpath")
         if [ $? -ne 0 -o -z "$logfile" ]; then
             logger 'Error creating log file for monitor process...'
+            clean_up
             exit 1
         fi
 
