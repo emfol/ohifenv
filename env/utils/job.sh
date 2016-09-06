@@ -172,6 +172,31 @@ function logger {
     [ $# -gt 0 ] && printf ' -- %s\n' "$*"
 }
 
+function stoptree {
+    local result child parent
+    [ $# -gt 0 ] && [ -n "$1" ] || return 1
+    result=0
+    parent=$1
+    [ ${#lspid[@]} -gt 0 ] && lspid=( "${lspid[@]}" "$parent" ) || lspid=( "$parent" )
+    kill -stop "$parent" || let 'result|=2'
+    # ps --no-headers -o pid --ppid "$parent"
+    # pgrep -P "$parent"
+    for child in $(pgrep -P "$parent"); do
+        stoptree "$child"
+        let "result|=$?"
+    done
+    kill -term "$parent" || let 'result|=4'
+    kill -cont "$parent" || let 'result|=8'
+    logger "-- SIGTERM sent to $parent"
+    return $result
+}
+
+function interrupt_job {
+    [ $# -gt 0 ] && [ -n "$1" ] || return 1
+    lspid=()
+    stoptree "$1"
+}
+
 # ... SIGNAL HANDLERS
 
 function trap_detach_signal {
@@ -180,9 +205,6 @@ function trap_detach_signal {
 
 function trap_termination_signal {
     logger 'SIGTERM intercepted!'
-    logger 'sending termination signal (SIGTERM) to job process'
-    kill -s SIGTERM "$jobpid"
-    logger "R: $?"
     sigret=2
 }
 
@@ -196,6 +218,7 @@ declare cmdname='' jobpath=${xjobshjobpath:-''}
 declare logfile='' lockfile=${xjobshlockfile:-''}
 declare jobpid='' monitorpid='' clientpid=${xjobshclientpid:-''}
 declare jobhook=''
+declare -a lspid=()
 declare selfpath=$(command_path "$0")
 
 ########
@@ -272,12 +295,21 @@ if is_monitor_mode; then
         # trap executed
         logger "trap executed ( w: $retval, s: $sigret )"
         if [ $sigret -eq 2 ]; then
+            # stop process tree
+            logger 'broadcasting termination signal'
+            interrupt_job $jobpid
+            logger "R: $?"
+            if [ ${#lspid[@]} -gt 0 ]; then
+                logger "SIGTERM sent to: ${lspid[*]}"
+            else
+                logger 'unexpected lenght for PID list... something went wrong'
+            fi
             # repeat wait call
             logger 'waiting for interrupted job status code'
             wait $jobpid
             logger "R: $?"
         else
-            logger "not expecting such trap return code: $sigret"
+            logger "nothing to do... unexpected trap return code: $sigret"
         fi
     fi
 
