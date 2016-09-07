@@ -17,7 +17,7 @@ declare tjn_dir tjn_url="https://github.com/tj/n"
 declare meteor_sh meteor_url="https://install.meteor.com/"
 # git/ohif vars
 declare git_user_name git_user_email
-declare ohif_dir="/home/ohif/src" ohif_url="https://github.com/OHIF/Viewers"
+declare ohif_dir="/home/ohif/src" ohif_url="https://github.com/OHIF/Viewers.git"
 # yum var
 declare -a yum_pkgs_missing yum_pkgs_list=( tree vim curl git make gcc g++:gcc-c++ )
 declare yum_pkg_id yum_pkg_cmd
