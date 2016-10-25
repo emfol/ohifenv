@@ -78,6 +78,13 @@ else
     fi
 fi
 
+# check if user only wants the db instance...
+if [ $# -gt 0 ] && [ "$1" = '--db-only' ]
+then
+    # nothing else to do...
+    exit 0
+fi
+
 instance='APP'
 if docker_container_running "$dkcnt_db"
 then

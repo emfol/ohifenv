@@ -3,7 +3,7 @@
 set -u
 
 declare basedir='/home/ohif'
-declare projectnames='LesionTracker|OHIFViewer'
+declare projectnames='LesionTracker|OHIFViewer|PIMWebViewer'
 declare dbhost='ohif_db:8042'
 declare argfile='/tmp/args-ohif.app.main.txt'
 declare -a binaries=() projects=()
